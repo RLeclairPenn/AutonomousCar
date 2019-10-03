@@ -68,11 +68,10 @@ void loop() {
     
     double curr = g.gyro.z;
     static double out = 0;
-    out += curr / 0.02;
+    out += curr * 0.02;
+
+    // Wait 20 ms
     
-//  
-//  wait 1 second
-//
     Serial.println(out);
     
     delay(20);
