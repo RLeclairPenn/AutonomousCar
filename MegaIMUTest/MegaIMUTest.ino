@@ -65,15 +65,15 @@ void loop() {
 //    Serial.print("\tY: "); Serial.print(g.gyro.y);      Serial.print(" dps");
 //    Serial.print("\tZ: "); Serial.print(g.gyro.z);      Serial.println(" dps");
 
+    
     double curr = g.gyro.z;
-    static double prev = curr;
-    static double out = 0.0;
-    out += prev + (curr - prev) / 0.02;
+    static double out = 0;
+    out += curr / 0.02;
     
 //  
 //  wait 1 second
 //
     Serial.println(out);
-    prev = curr;
+    
     delay(20);
 }
