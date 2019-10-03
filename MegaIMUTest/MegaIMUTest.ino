@@ -53,21 +53,27 @@ void loop() {
     lsm.read();  /* ask it to read in the data */
     sensors_event_t a, m, g, temp;
     lsm.getEvent(&a, &m, &g, &temp);
-    Serial.print("Accel X: "); Serial.print(a.acceleration.x); Serial.print(" m/s^2");
-    Serial.print("\tY: "); Serial.print(a.acceleration.y);     Serial.print(" m/s^2 ");
-    Serial.print("\tZ: "); Serial.print(a.acceleration.z);     Serial.println(" m/s^2 ");
+    //Serial.print("Accel X: "); Serial.print(a.acceleration.x); Serial.print(" m/s^2");
+    //Serial.print("\tY: "); Serial.print(a.acceleration.y);     Serial.print(" m/s^2 ");
+    //Serial.print("\tZ: "); Serial.print(a.acceleration.z);     Serial.println(" m/s^2 ");
 
-    Serial.print("Mag X: "); Serial.print(m.magnetic.x);   Serial.print(" gauss");
-    Serial.print("\tY: "); Serial.print(m.magnetic.y);     Serial.print(" gauss");
-    Serial.print("\tZ: "); Serial.print(m.magnetic.z);     Serial.println(" gauss");
-
-    Serial.print("Gyro X: "); Serial.print(g.gyro.x);   Serial.print(" dps");
-    Serial.print("\tY: "); Serial.print(g.gyro.y);      Serial.print(" dps");
-    Serial.print("\tZ: "); Serial.print(g.gyro.z);      Serial.println(" dps");
-
+    //Serial.print("Mag X: "); Serial.print(m.magnetic.x);   Serial.print(" gauss");
+    //Serial.print("\tY: "); Serial.print(m.magnetic.y);     Serial.print(" gauss");
+    //Serial.print("\tZ: "); Serial.print(m.magnetic.z);     Serial.println(" gauss");
 //
+//    Serial.print("Gyro X: "); Serial.print(g.gyro.x);   Serial.print(" dps");
+//    Serial.print("\tY: "); Serial.print(g.gyro.y);      Serial.print(" dps");
+//    Serial.print("\tZ: "); Serial.print(g.gyro.z);      Serial.println(" dps");
+
+    double curr = g.gyro.z;
+    static double prev = curr;
+    static double out = 0.0;
+    out += prev + (curr - prev) / 0.02;
+    
+//  
 //  wait 1 second
 //
-    Serial.println();
-    delay(1000);
+    Serial.println(out);
+    prev = curr;
+    delay(20);
 }
