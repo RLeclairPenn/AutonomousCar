@@ -19,11 +19,14 @@
 #define motorLPWMPin 10 // Left Motor Speed Control
 #define motorRPWMPin 11 // Right Motor Speed Control
 
+#define servoCenter 1200 // The servoCenter
+
 float frontPingDistanceCM = 0.0;
 float rightPingDistanceCM = 0.0;
 float leftPingDistanceCM = 0.0;
+
 static double error;
-unsigned long previousTime;
+double waitTime = 0.02;
 Servo steeringServo;
 const long ping_timeout = 5000;
 const double desiredDistance = 30.0; // 30 CM from wall
@@ -31,7 +34,6 @@ double servoAngleDeg = 0.0; //Steering angle delta
 int motor_speed = 0;
 double deltaI = 0.0;
 double deltaD = 0.0;
-double dt;
 double Kp = 5;
 double Ki = 0.1;
 double Kd = 0.5;
@@ -67,6 +69,7 @@ void setup() {
 }
 
 void loop() {
+  
   //Check for front collision
   if (frontPingDistanceCM <= 25) {
     motor_speed = 0;
@@ -74,42 +77,48 @@ void loop() {
   else {
     motor_speed = 50;
   }
- 
+  
   //Move Forward
   moveMotor(motor_speed, true);
 
+  // Gets right ping distance
   getRightPingDistanceCM();
   Serial.print("Right Distance: ");
   Serial.println(rightPingDistanceCM, DEC);
 
-  
+  // Gets left ping distance
   getLeftPingDistanceCM();
   Serial.print("Left Distance: ");
   Serial.println(leftPingDistanceCM, DEC);
 
+  // Gets front ping distance
   getFrontPingDistanceCM();
   Serial.print("Front Distance: ");
   Serial.println(frontPingDistanceCM, DEC);
   Serial.print("\n");
 
+  // This is the error we have for the distance
   error = (desiredDistance - rightPingDistanceCM);
 
   //Proportional Feedback
   servoAngleDeg = -Kp * error;
 
   //Integral Feedback
-  dt = ((micros() - previousTime) * 0.000001);
+  double dt = waitTime * 0.001;
   deltaI += Ki * error * dt;
-  unsigned long previousTime = micros();
   //Derivative Feedback
   deltaD = Kd*(error-DerivError)/dt;
-  //servoAngleDeg += (deltaD + deltaI) ;
+
+  // Adding the integral feedback to the new servo angle degree
+  servoAngleDeg += deltaI;
   servoAngleDeg = constrain(servoAngleDeg, -20.0, 20.0);
- 
+
+  // Setting the servo angle
   setServoAngle(servoAngleDeg);
   Serial.print("Servo Angle: ");
   Serial.println(servoAngleDeg);
-  
+
+  delay(20);
 }
 
 void setServoAngle(double sDeg)
@@ -120,7 +129,7 @@ void setServoAngle(double sDeg)
   //  100us is about 20deg (higher values --> more right steering)
   //  wrong ServoCenter values can damage servo
   //
-  double ServoCenter_us = 1200;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     00.0;
+  double ServoCenter_us = servoCenter;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     00.0;
   double ServoScale_us = 8.0;    // micro-seconds per degree
   //
   //  NEVER send a servo command without constraining servo motion!
