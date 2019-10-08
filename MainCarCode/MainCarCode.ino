@@ -55,6 +55,7 @@ double Ki = 0.1;
 double Kd = 0.5;
 static double DerivError;
 
+
 void setup() {
   // Enable Serial Communications
   Serial.begin(115200);
@@ -92,7 +93,8 @@ void setup() {
   // set ranges for sensor
   lsm.setupAccel(lsm.LSM9DS1_ACCELRANGE_2G);
   lsm.setupMag(lsm.LSM9DS1_MAGGAIN_4GAUSS);
-  lsm.setupGyro(lsm.LSM9DS1_GYROSCALE_245DPS);
+  lsm.setupGyro(lsm.LSM9DS1_GYROSCALE_245DPS); 
+  
 }
 
 void loop() {
@@ -101,6 +103,8 @@ void loop() {
   unsigned static long previousTime = micros();
   // Setting up for heading 
   static double heading = 0;
+  // Setting up for pitch
+  static double pitch = 0;
   // this boolean value is to know whether to mantain heading hold or not
   bool hasAWall;
   
@@ -143,21 +147,24 @@ void loop() {
   else {
     hasAWall = true;
   }
-  //Heading
+  // Heading
   double curr = g.gyro.z;
   heading += curr * dt;
+
+  // Pitch
+  double RC = 10.0;
+  double currgx = g.gyro.x;
+  double lowpasscomp = (((-a.acceleration.y * 57.3) / 9.8) - pitch) * (1 / RC);
+  pitch += (currgx + lowpasscomp) * dt;
+  Serial.println(pitch);
   
   // This is the error we have for the distance
   if (hasAWall) {
     error = (desiredDistance - rightPingDistanceCM);  
-    //heading = 0;
-    //Serial.println("This car has a wall");
   }
   else {
     error = -heading;
-    //Serial.println("This car does not have a wall");
   }
-  Serial.println(heading);
   // Setting up dt
   dt = ((micros() - previousTime) * 0.000001);
   previousTime = micros();
@@ -176,7 +183,7 @@ void loop() {
   //deltaD = Kd*(error-DerivError)/dt;
   
  
-  setServoAngle(servoAngleDeg);
+  setServoAngle(0);
   //Serial.print("Servo Angle: ");
   //Serial.println(servoAngleDeg);
   

@@ -67,12 +67,16 @@ void loop() {
 
     
     double curr = g.gyro.z;
-    static double out = 0;
-    out += curr * 0.02;
-
-    // Wait 20 ms
     
-    Serial.println(out);
+    // put your main code here, to run repeatedly:
+    static double gyroxprev = curr; // Starting condition for Vout previous
+    static double RC = 10; // RC of 1
+    unsigned long deltaTime = 0.02; // delta time of 20 ms
+    double filtered = gyroxprev + (deltaTime / RC) * (curr - gyroxprev); //Equation to get Vout 
+    gyroxprev = curr; //Setting Vprev for next loop
+  
+    
+    Serial.println(filtered);
     
     delay(20);
 }
