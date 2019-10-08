@@ -1,4 +1,7 @@
 #include <Servo.h>
+#include <SPI.h>
+#include <Adafruit_LSM9DS1.h>
+#include <Adafruit_Sensor.h>
 
 #define servoPin 7 // pin for servo signal
 
@@ -22,8 +25,23 @@
 float frontPingDistanceCM = 0.0;
 float rightPingDistanceCM = 0.0;
 float leftPingDistanceCM = 0.0;
+
+
+// IMU setup ---------------------------------------------------------------------------------------
+//PINS ON MEGA FOR THE IMU
+
+#define LSM9DS1_SCK 52  //BDK-mega
+#define LSM9DS1_MISO 50 //BDK-mega
+#define LSM9DS1_MOSI 51 //BDK-mega
+#define LSM9DS1_XGCS 49 //BDK-mega
+#define LSM9DS1_MCS 47 //BDK-mega
+
+// tell sensor library which pins for accel & gyro data
+Adafruit_LSM9DS1 lsm = Adafruit_LSM9DS1(LSM9DS1_XGCS, LSM9DS1_MCS);
+
+// ------------------------------------------------------------------------------------------------
+
 static double error;
-unsigned long previousTime;
 Servo steeringServo;
 const long ping_timeout = 5000;
 const double desiredDistance = 30.0; // 30 CM from wall
@@ -64,9 +82,33 @@ void setup() {
   // Initialize Servo
   steeringServo.attach(servoPin);
   setServoAngle(servoAngleDeg);
+
+  //Initialize IMU 
+  if (!lsm.begin())
+    {
+      Serial.println("Oops ... unable to initialize the LSM9DS1. Check your wiring!");
+      while (1);
+    }
+  // set ranges for sensor
+  lsm.setupAccel(lsm.LSM9DS1_ACCELRANGE_2G);
+  lsm.setupMag(lsm.LSM9DS1_MAGGAIN_4GAUSS);
+  lsm.setupGyro(lsm.LSM9DS1_GYROSCALE_245DPS);
 }
 
 void loop() {
+
+  // Setting up for previousTime
+  unsigned static long previousTime = micros();
+  // Setting up for heading 
+  static double heading = 0;
+  // this boolean value is to know whether to mantain heading hold or not
+  bool hasAWall;
+  
+  //Getting the gyro data
+  lsm.read();  /* ask it to read in the data */
+  sensors_event_t a, m, g, temp;
+  lsm.getEvent(&a, &m, &g, &temp);  
+
   //Check for front collision
   if (frontPingDistanceCM <= 25) {
     motor_speed = 0;
@@ -74,43 +116,74 @@ void loop() {
   else {
     motor_speed = 50;
   }
- 
+  
   //Move Forward
   moveMotor(motor_speed, true);
 
+  // Gets right ping distance
   getRightPingDistanceCM();
-  Serial.print("Right Distance: ");
-  Serial.println(rightPingDistanceCM, DEC);
+  //Serial.print("Right Distance: ");
+  //Serial.println(rightPingDistanceCM, DEC);
+
+  // Gets left ping distance
+  getLeftPingDistanceCM();
+  //Serial.print("Left Distance: ");
+  //Serial.println(leftPingDistanceCM, DEC);
+
+  // Gets front ping distance
+  getFrontPingDistanceCM();
+  //Serial.print("Front Distance: ");
+  //Serial.println(frontPingDistanceCM, DEC);
+  //Serial.print("\n");
+
+  // Checking if there is a wall
+  if (rightPingDistanceCM > 45) {
+    hasAWall = false; 
+  }
+  else {
+    hasAWall = true;
+  }
+  //Heading
+  double curr = g.gyro.z;
+  heading += curr * dt;
+  
+  // This is the error we have for the distance
+  if (hasAWall) {
+    error = (desiredDistance - rightPingDistanceCM);  
+    //heading = 0;
+    //Serial.println("This car has a wall");
+  }
+  else {
+    error = -heading;
+    //Serial.println("This car does not have a wall");
+  }
+  Serial.println(heading);
+  // Setting up dt
+  dt = ((micros() - previousTime) * 0.000001);
+  previousTime = micros();
 
   
-  getLeftPingDistanceCM();
-  Serial.print("Left Distance: ");
-  Serial.println(leftPingDistanceCM, DEC);
-
-  getFrontPingDistanceCM();
-  Serial.print("Front Distance: ");
-  Serial.println(frontPingDistanceCM, DEC);
-  Serial.print("\n");
-
-  error = (desiredDistance - rightPingDistanceCM);
-
   //Proportional Feedback
-  servoAngleDeg = -Kp * error;
-
+  servoAngleDeg = constrain(-Kp * error, -20.0, 20.0);
+  
   //Integral Feedback
-  dt = ((micros() - previousTime) * 0.000001);
-  deltaI += Ki * error * dt;
-  unsigned long previousTime = micros();
+  if (hasAWall) {
+    deltaI += Ki * error * dt;
+    servoAngleDeg = constrain(servoAngleDeg + deltaI, -20.0, 20.0);
+  }
+  
   //Derivative Feedback
-  deltaD = Kd*(error-DerivError)/dt;
-  //servoAngleDeg += (deltaD + deltaI) ;
-  servoAngleDeg = constrain(servoAngleDeg, -20.0, 20.0);
+  //deltaD = Kd*(error-DerivError)/dt;
+  
  
   setServoAngle(servoAngleDeg);
-  Serial.print("Servo Angle: ");
-  Serial.println(servoAngleDeg);
+  //Serial.print("Servo Angle: ");
+  //Serial.println(servoAngleDeg);
+  
   
 }
+
+
 
 void setServoAngle(double sDeg)
 {
@@ -120,7 +193,7 @@ void setServoAngle(double sDeg)
   //  100us is about 20deg (higher values --> more right steering)
   //  wrong ServoCenter values can damage servo
   //
-  double ServoCenter_us = 1200;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     00.0;
+  double ServoCenter_us = 1250;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     00.0;
   double ServoScale_us = 8.0;    // micro-seconds per degree
   //
   //  NEVER send a servo command without constraining servo motion!
@@ -129,7 +202,6 @@ void setServoAngle(double sDeg)
   double t_us = constrain(ServoCenter_us + ServoScale_us * sDeg, ServoCenter_us - 150, ServoCenter_us + 150);
   steeringServo.writeMicroseconds(t_us);
 }
-
 
 void getFrontPingDistanceCM()
 {
