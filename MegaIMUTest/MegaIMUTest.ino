@@ -4,7 +4,7 @@
 //
 // Need the Adafruit Sensor Library
 //
-
+#include <Filters.h>
 #include <SPI.h>
 #include <Adafruit_LSM9DS1.h>
 #include <Adafruit_Sensor.h>
@@ -67,16 +67,23 @@ void loop() {
 
     
     double curr = g.gyro.z;
-    
+    static double filtered = 0;
     // put your main code here, to run repeatedly:
     static double gyroxprev = curr; // Starting condition for Vout previous
-    static double RC = 10; // RC of 1
+    static double RC = 1; // RC of 1
     unsigned long deltaTime = 0.02; // delta time of 20 ms
-    double filtered = gyroxprev + (deltaTime / RC) * (curr - gyroxprev); //Equation to get Vout 
+    filtered += gyroxprev + ((deltaTime / RC) * (curr - gyroxprev)); //Equation to get Vout 
+    
+    static float filterFrequency = 120.0;
+    FilterOnePole lowpassFilter(LOWPASS, filterFrequency);
+    Serial.print(g.gyro.z);
+    Serial.print(" ");
+    Serial.println(lowpassFilter.input(g.gyro.z));
+    
+    //Serial.print(curr);
+    //Serial.print(" ");
+    //Serial.println(filtered);
+
     gyroxprev = curr; //Setting Vprev for next loop
-  
-    
-    Serial.println(filtered);
-    
     delay(20);
 }

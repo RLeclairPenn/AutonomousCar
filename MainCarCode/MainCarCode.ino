@@ -54,7 +54,7 @@ double Kp = 5;
 double Ki = 0.1;
 double Kd = 0.5;
 static double DerivError;
-
+double finalPitch = 0.0;
 
 void setup() {
   // Enable Serial Communications
@@ -118,7 +118,7 @@ void loop() {
     motor_speed = 0;
   }
   else {
-    motor_speed = 50;
+    motor_speed = finalPitch;
   }
   
   //Move Forward
@@ -152,11 +152,12 @@ void loop() {
   heading += curr * dt;
 
   // Pitch
-  double RC = 10.0;
+  double RC = 1.0;
   double currgx = g.gyro.x;
   double lowpasscomp = (((-a.acceleration.y * 57.3) / 9.8) - pitch) * (1 / RC);
   pitch += (currgx + lowpasscomp) * dt;
-  Serial.println(pitch);
+  finalPitch = -pitch;
+  Serial.println(finalPitch + 3.15);
   
   // This is the error we have for the distance
   if (hasAWall) {
@@ -183,7 +184,7 @@ void loop() {
   //deltaD = Kd*(error-DerivError)/dt;
   
  
-  setServoAngle(0);
+  setServoAngle(servoAngleDeg);
   //Serial.print("Servo Angle: ");
   //Serial.println(servoAngleDeg);
   
@@ -200,7 +201,7 @@ void setServoAngle(double sDeg)
   //  100us is about 20deg (higher values --> more right steering)
   //  wrong ServoCenter values can damage servo
   //
-  double ServoCenter_us = 1250;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     00.0;
+  double ServoCenter_us = 925;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     00.0;
   double ServoScale_us = 8.0;    // micro-seconds per degree
   //
   //  NEVER send a servo command without constraining servo motion!
@@ -339,7 +340,10 @@ void moveMotor(int motor_speed, bool direction) {
     digitalWrite(motorFwdPin, LOW);
     digitalWrite(motorRevPin, HIGH);
   }
-byte motorPWM = map(motor_speed, 0, 100, 0, 255);
-  analogWrite(motorLPWMPin, motorPWM);
-  analogWrite(motorRPWMPin, motorPWM);
+//byte motorPWM = map(motor_speed, 0, 100, 0, 255);
+  //analogWrite(motorLPWMPin, motorPWM);
+  //analogWrite(motorRPWMPin, motorPWM);
+byte pitchmotorPWM = map(motor_speed, -10, 10, 102, 205);
+  analogWrite(motorLPWMPin, pitchmotorPWM);
+  analogWrite(motorRPWMPin, pitchmotorPWM);
 }
