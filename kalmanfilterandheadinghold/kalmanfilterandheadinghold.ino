@@ -64,7 +64,7 @@ double Kd = 0.5;
 static double DerivError;
 double PWM = 50;
 
-\\send data
+//send data
 const int RECEIVE_REGISTER_SIZE = 8;
 const int SEND_REGISTER_SIZE = 8;
 float receive_registers[RECEIVE_REGISTER_SIZE];
@@ -73,7 +73,7 @@ int current_send_register = 7;
 
 
 //doing the kalman filter at the start of the process
-DO_KALMAN_UPDATE_COMMAND = 100;
+const int DO_KALMAN_UPDATE_COMMAND = 100;
 int STRING_COMMAND = 10;
 int UPDATE_SEND_REGISTER = 11;
 

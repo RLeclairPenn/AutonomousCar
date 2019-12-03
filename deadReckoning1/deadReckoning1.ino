@@ -3,6 +3,7 @@
 #include <Adafruit_LSM9DS1.h>
 #include <Adafruit_Sensor.h>
 #include <Wire.h>
+#include <BasicLinearAlgebra.h>
 #define servoPin 7 // pin for servo signal
 
 #define frontPingTrigPin 22 // ping sensor trigger pin (output from Arduino)
@@ -64,8 +65,6 @@ double Kp = 5;
 double Ki = 0.1;
 double Kd = 0.5;
 static double DerivError;
-//doing the kalman filter at the start of the process
-DO_KALMAN_UPDATE_COMMAND = 100;
 using namespace BLA;
 // ------------------------------------------------------------------------------------------------
 BLA::Matrix<3> x_hat_matrix = {0,0,0};
@@ -125,13 +124,15 @@ void setup() {
   
 }
 
+unsigned long previousTime = micros();
+
 void loop() {
   delay(100);
   static float v = 1.0;
   static float currX = 0.0;
   static float currY = 0.0;
   // Setting up for previousTime
-  unsigned static long previousTime = micros();
+  // unsigned static long previousTime = micros();
   // Setting up for heading 
   static double heading = 0;
   // this boolean value is to know whether to mantain heading hold or not
@@ -191,7 +192,8 @@ void loop() {
   setServoAngle(servoAngleDeg);
   //Serial.print("Servo Angle: ");
   //Serial.println(servoAngleDeg);
-  x_hat_matrix = x_hat_matrix + {currX,currY,heading};
+  BLA::Matrix<3> currXcurrYcurrAngle = {currX, currY, currangle};
+  x_hat_matrix = x_hat_matrix + currXcurrYcurrAngle;
 }
 
 
@@ -411,9 +413,8 @@ void kalman_update() {
   BLA::Matrix<3,3> Q_matrix = {1.0, 0.0, 0.0,
                                0.0, 1.0, 0.0,
                                0.0, 0.0, 1.0};
-  BLA::Matrix<3,3> R_matrix = {1.0, 0.0, 0.0,
-                               0.0, 1.0, 0.0,
-                               0.0, 0.0, 1.0};
+  BLA::Matrix<2,2> R_matrix = {1.0, 0.0, 
+                               0.0, 1.0};
   BLA::Matrix<3,3> I_matrix = {1.0, 0.0, 0.0,
                                0.0, 1.0, 0.0,
                                0.0, 0.0, 1.0};//these should be changed due to the test.
@@ -421,32 +422,36 @@ void kalman_update() {
   BLA::Matrix<3> x_hat_prime_matrix;
   
   static BLA::Matrix<3> x_hat_last_matrix = {0.0,0.0,0.0};//may need to change depending on actual last coords
-  BLA::Matrix<3> p_prime_matrix;
-  BLA::Matrix<3> p_matrix;
-  static BLA::Matrix<3> p_last_matrix= {1.0,1.0,1.0};
+  BLA::Matrix<3,3> p_prime_matrix;
+  BLA::Matrix<3,3> p_matrix;
+  static BLA::Matrix<3,3> p_last_matrix= {1.0,0.0,0.0,
+                                          0.0,1.0,0.0,
+                                          0.0,0.0,1.0};
   static double t_last = 0.0;
   double dt = ((micros() - previousTime) * 0.000001);
+  double PWM = 50.0;
   double v = -0.00002*PWM*PWM + 0.0083*PWM + 0.1836;
   BLA::Matrix<2> z_k_matrix = {0.0,0.0};//input from measurement
   double x_p;
   double y_p;
   double L_c;
-  
+  BLA::Matrix<3,2> K_k_matrix = {1.0,1.0,1.0,
+                                  1.0,1.0,1.0};
   BLA::Matrix<3,3> A_k_matrix = {1.0, 0.0, dt*v*sin(x_hat_last_matrix(2)),
                                  0.0, 1.0, dt*v*sin(x_hat_last_matrix(2)),
                                  0.0, 0.0, 1.0};
 
-  BLA::Matrix<3> x_hat_prime_update_matrix = ;
+  BLA::Matrix<3,1> x_hat_prime_update_matrix = {1.0, 1.0,1.0};
   x_hat_prime_matrix = x_hat_last_matrix + x_hat_prime_update_matrix; 
-  BLA::Matrix<2,3> H_k_matrix = {-cos(x_hat_last_matrix(2)), -sin(x_hat_last_matrix(2), -(x_p - x_hat_prime_matrix(0))*sin(x_hat_prime_matrix(2)) + (y_p - x_hat_prime_matrix(1))*cos(x_hat_prime_matrix(2)),
-                          -cos(x_hat_last_matrix(2)), sin(x_hat_last_matrix(2),-(y_p - x_hat_prime_matrix(1))*sin(x_hat_prime_matrix(2)) - (x_p - x_hat_prime_matrix(0))*cos(x_hat_prime_matrix(2))};
+  BLA::Matrix<2,3> H_k_matrix = {-cos(x_hat_last_matrix(2)), -sin(x_hat_last_matrix(2)), -(x_p - x_hat_prime_matrix(0))*sin(x_hat_prime_matrix(2)) + (y_p - x_hat_prime_matrix(1))*cos(x_hat_prime_matrix(2)),
+                          -cos(x_hat_last_matrix(2)), sin(x_hat_last_matrix(2)),-(y_p - x_hat_prime_matrix(1))*sin(x_hat_prime_matrix(2)) - (x_p - x_hat_prime_matrix(0))*cos(x_hat_prime_matrix(2))};
 
   BLA::Matrix<2> z_hat_prime = {(x_p - x_hat_prime_matrix(0))*cos(x_hat_prime_matrix(2)) + (y_p - x_hat_prime_matrix(1))*sin(x_hat_prime_matrix(2)) - L_c,(y_p - x_hat_prime_matrix(1))*cos(x_hat_prime_matrix(2)) - (x_p - x_hat_prime_matrix(0))*sin(x_hat_prime_matrix(2))};
-  p_prime_matrix = A_k_matrix*p_last_matrix*Transpose(A_k_matrix) + Q_matrix;
+  p_prime_matrix = A_k_matrix*p_last_matrix* (~A_k_matrix) + Q_matrix;
   
   //update th primary calculation for p and x_hat
   
-  double K_k_matrix = p_prime_matrix*Transpose(H_k_matrix)*Invert(H_k_matrix*p_prime_matrix*Transpose(H_k_matrix)+R_matrix);
+  K_k_matrix = p_prime_matrix*~(H_k_matrix)*(H_k_matrix*p_prime_matrix*~(H_k_matrix)+R_matrix).Inverse();
   //Calculate the kalman filter
   x_hat_matrix = x_hat_prime_matrix + K_k_matrix*(z_k_matrix-z_hat_prime);
   p_matrix= (I_matrix-K_k_matrix*H_k_matrix)*p_prime_matrix;
@@ -464,11 +469,7 @@ void kalman_update() {
   return x_hat_matrix; 
 }
 
-void kalman_update() {
-  kalman_update();
-  Serial.println("doing kalman update");
-  
-}
+
 
 
 
