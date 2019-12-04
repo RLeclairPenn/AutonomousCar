@@ -2,6 +2,7 @@
 #include <SPI.h>
 #include <Adafruit_LSM9DS1.h>
 #include <Adafruit_Sensor.h>
+#include <BasicLinearAlgebra.h>
 
 #define servoPin 7 // pin for servo signal
 
@@ -46,7 +47,7 @@ Servo steeringServo;
 const long ping_timeout = 5000;
 const double desiredDistance = 30.0; // 30 CM from wall
 double servoAngleDeg = 0.0; //Steering angle delta
-int motor_speed = 0;
+int motor_speed = 50; //
 double deltaI = 0.0;
 double deltaD = 0.0;
 double dt;
@@ -96,16 +97,22 @@ void setup() {
 }
 
 void loop() {
-  static float v = 1.0;
-  static float currX = 0.0;
-  static float currY = 0.0;
-  // Setting up for previousTime
-  unsigned static long previousTime = micros();
-  // Setting up for heading 
-  static double heading = 0;
-  // this boolean value is to know whether to mantain heading hold or not
-  bool hasAWall;
+  static float currX = 0.0; // input this into the matrix
+  static float currY = 0.0; // input this into the matrix
   
+  // Setting up for previousTime
+  static double previousTime = millis();
+  double delayTsec = 0.01;
+  delay(1000*delayTsec);
+
+  // Necessary Stuff for the Kalman Filter
+  double Lc = 16; //length of car
+  double V = 50.0; //speed of car (calibrated)
+  double xp = 1000; //pos of cone in world coordinate system
+  double yp = 100; //pos of cone in world coordinate system
+    
+  // Setting up for heading 
+  static double heading = 0.0;
   //Getting the gyro data
   lsm.read();  /* ask it to read in the data */
   sensors_event_t a, m, g, temp;
@@ -142,15 +149,31 @@ void loop() {
   double curr = g.gyro.z - 1.82;
   heading += curr * dt;
   correctAngle = heading * 3.14159265 / 180;
-  currX += v * dt * cos(heading * 3.14159265 / 180);
-  currY += v * dt * sin(heading * 3.14159265 / 180);
-  
+
+  // Kalman Filter Start -------------------------------------------------------------------
+  double delayTsec = 0.01;
+  delay(1000*delayTsec);
+
+  static BLA::Matrix<3> x_true = {0, 0, 0.0};
+  static BLA::Matrix<3> x_hat = {currX, currY, correctAngle}; // initial estimte of car's position
+  static BLA::Matrix<3,3> P = {0,0,0,
+                               0,0,0,
+                               0,0,0};
+  double TT = delayTsec*delayTsec;
+  double QQ = 100.0;
+  BLA::Matrix<3,3> Q = {QQ*TT,0,0,  //uncertainty of Dead Reckoning
+                        0,QQ*TT,0,
+                        0,0,0.00001*QQ*TT};
+  double RR = 1000.0;
+  BLA::Matrix<2,2> R = {RR*TT, 0,
+                          0,  RR*TT};
+
+  dt = (millis() - previousTime) / 1000.0;
+  previousTime = millis();
   // Serial.print(currX);
   // Serial.print(";");
   // Serial.println(currY);
   // Setting up dt
-  dt = ((micros() - previousTime) * 0.000001);
-  previousTime = micros();
   
   setServoAngle(servoAngleDeg);
   //Serial.print("Servo Angle: ");
