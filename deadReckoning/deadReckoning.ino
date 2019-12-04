@@ -116,7 +116,7 @@ void loop() {
     motor_speed = 0;
   }
   else {
-    motor_speed = 0;
+    motor_speed = 0; // 50 is the usual speed
   }
   
   //Move Forward
@@ -141,6 +141,7 @@ void loop() {
   //Heading
   double curr = g.gyro.z - 1.82;
   heading += curr * dt;
+  correctAngle = heading * 3.14159265 / 180;
   currX += v * dt * cos(heading * 3.14159265 / 180);
   currY += v * dt * sin(heading * 3.14159265 / 180);
   

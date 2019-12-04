@@ -96,7 +96,9 @@ void setup() {
 }
 
 void loop() {
-
+  static float v = 1.0;
+  static float currX = 0.0;
+  static float currY = 0.0;
   // Setting up for previousTime
   unsigned static long previousTime = micros();
   // Setting up for heading 
@@ -114,7 +116,7 @@ void loop() {
     motor_speed = 0;
   }
   else {
-    motor_speed = 50;
+    motor_speed = 0; // 50 is the usual speed
   }
   
   //Move Forward
@@ -136,46 +138,20 @@ void loop() {
   //Serial.println(frontPingDistanceCM, DEC);
   //Serial.print("\n");
 
-  // Checking if there is a wall
-  if (rightPingDistanceCM > 45) {
-    hasAWall = false; 
-  }
-  else {
-    hasAWall = true;
-  }
   //Heading
-  double curr = g.gyro.z;
+  double curr = g.gyro.z - 1.82;
   heading += curr * dt;
+  correctAngle = heading * 3.14159265 / 180;
+  currX += v * dt * cos(heading * 3.14159265 / 180);
+  currY += v * dt * sin(heading * 3.14159265 / 180);
   
-  // This is the error we have for the distance
-  if (hasAWall) {
-    error = (desiredDistance - rightPingDistanceCM);  
-    //heading = 0;
-    //Serial.println("This car has a wall");
-  }
-  else {
-    error = -heading;
-    //Serial.println("This car does not have a wall");
-  }
-  Serial.println(heading);
+  // Serial.print(currX);
+  // Serial.print(";");
+  // Serial.println(currY);
   // Setting up dt
   dt = ((micros() - previousTime) * 0.000001);
   previousTime = micros();
-
   
-  //Proportional Feedback
-  servoAngleDeg = constrain(-Kp * error, -20.0, 20.0);
-  
-  //Integral Feedback
-  if (hasAWall) {
-    deltaI += Ki * error * dt;
-    servoAngleDeg = constrain(servoAngleDeg + deltaI, -20.0, 20.0);
-  }
-  
-  //Derivative Feedback
-  //deltaD = Kd*(error-DerivError)/dt;
-  
- 
   setServoAngle(servoAngleDeg);
   //Serial.print("Servo Angle: ");
   //Serial.println(servoAngleDeg);
