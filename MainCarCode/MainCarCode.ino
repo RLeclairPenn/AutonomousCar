@@ -99,6 +99,7 @@ void setup() {
 void loop() {
   static float currX = 0.0; // input this into the matrix
   static float currY = 0.0; // input this into the matrix
+  static double heading = 0.0; // input this into the matrix
   
   // Setting up for previousTime
   static double previousTime = millis();
@@ -111,8 +112,6 @@ void loop() {
   double xp = 1000; //pos of cone in world coordinate system
   double yp = 100; //pos of cone in world coordinate system
     
-  // Setting up for heading 
-  static double heading = 0.0;
   //Getting the gyro data
   lsm.read();  /* ask it to read in the data */
   sensors_event_t a, m, g, temp;
@@ -128,58 +127,110 @@ void loop() {
   
   //Move Forward
   moveMotor(motor_speed, true);
-
-  // Gets right ping distance
-  getRightPingDistanceCM();
-  //Serial.print("Right Distance: ");
-  //Serial.println(rightPingDistanceCM, DEC);
-
-  // Gets left ping distance
-  getLeftPingDistanceCM();
-  //Serial.print("Left Distance: ");
-  //Serial.println(leftPingDistanceCM, DEC);
-
-  // Gets front ping distance
-  getFrontPingDistanceCM();
-  //Serial.print("Front Distance: ");
-  //Serial.println(frontPingDistanceCM, DEC);
-  //Serial.print("\n");
-
+  
+  getRightPingDistanceCM();// Gets right ping distance
+  getLeftPingDistanceCM();// Gets left ping distance
+  getFrontPingDistanceCM();// Gets front ping distance
+  
   //Heading
   double curr = g.gyro.z - 1.82;
   heading += curr * dt;
-  correctAngle = heading * 3.14159265 / 180;
-
-  // Kalman Filter Start -------------------------------------------------------------------
-  double delayTsec = 0.01;
-  delay(1000*delayTsec);
-
-  static BLA::Matrix<3> x_true = {0, 0, 0.0};
-  static BLA::Matrix<3> x_hat = {currX, currY, correctAngle}; // initial estimte of car's position
+  double correctAngle = heading * 3.14159265 / 180;
+  
+  static BLA::Matrix<3> x_hat = {currX, currY, correctAngle}; // initial estimte of car's position, world coordinate
+  
   static BLA::Matrix<3,3> P = {0,0,0,
                                0,0,0,
-                               0,0,0};
+                               0,0,0}; // we know exactly where we start
   double TT = delayTsec*delayTsec;
-  double QQ = 100.0;
+  double QQ = 100.0; // increasing means less certain of DR
   BLA::Matrix<3,3> Q = {QQ*TT,0,0,  //uncertainty of Dead Reckoning
                         0,QQ*TT,0,
                         0,0,0.00001*QQ*TT};
-  double RR = 1000.0;
-  BLA::Matrix<2,2> R = {RR*TT, 0,
+  double RR = 1000.0; // increasing this means less certainty of Measure.
+  BLA::Matrix<2,2> R = {RR*TT, 0, // uncertainty of camera measurements
                           0,  RR*TT};
-
+                          
   dt = (millis() - previousTime) / 1000.0;
   previousTime = millis();
-  // Serial.print(currX);
-  // Serial.print(";");
-  // Serial.println(currY);
-  // Setting up dt
+
+
+
+  //--------dead reckoning-----
+  BLA::Matrix<3> x_hat_prime;
+  x_hat_prime(0) = x_hat(0) + V * dt * cos(x_hat(2));
+  x_hat_prime(1) = x_hat(1) + V * dt * sin(x_hat(2));
+  x_hat_prime(2) = x_hat(2);
+
+  x_hat(0) = x_hat_prime(0);
+  x_hat(1) = x_hat_prime(1);
+  x_hat(2) = correctAngle;
+  // end of dead reckoning
+
   
-  setServoAngle(servoAngleDeg);
-  //Serial.print("Servo Angle: ");
-  //Serial.println(servoAngleDeg);
+  //SHOULD ONLY BE DONE WHEN THERE ARE MEASUREMENTS --------------------------------------------------------------------------------------------------
+  //TODO: Link the register things to these two measurements
+  double meas_x_t = 0.0; // camera coordinates
+  double meas_y_t = 0.0;
+  BLA::Matrix<2> z= {meas_x_t, meas_y_t}; // input our measurements
+
+  if (meas_x_t < 10.0) {
+    moveMotor(0, true);
+    while(1);
+  }
+  //--------------calc expected Pos of cone------
+
+  double expect_x = (xp - x_hat_prime(0)) * cos(x_hat_prime(2)) + (yp - x_hat_prime(1)) * sin(x_hat_prime(2)) - Lc; // camera coordinates 
+  double expect_y = (yp - x_hat_prime(1)) * cos(x_hat_prime(2)) - (xp - x_hat_prime(0)) * sin(x_hat_prime(2));
+
+  BLA::Matrix<2> z_hat_prime = {expect_x, expect_y};
+
   
+//-----------Calc P_prime-----
+
+  BLA::Matrix<3,3> A = {1, 0, -V * dt * sin(x_hat_prime(2)),
+                          0, 1, V * dt * cos(x_hat_prime(2)),
+                          0, 0, 1};
+
+  BLA::Matrix<3,3> P_prime;
+
+  BLA::Matrix<3,3> Inter = A * P;
+
+  Multiply(Inter,~A,P_prime);
+
+  P_prime += Q;
+
+//--------Calc K-----
+  BLA::Matrix<2,3> H = {-cos(x_hat_prime(2)), -sin(x_hat_prime(2)), expect_y,
+                         sin(x_hat_prime(2)), -cos(x_hat_prime(2)), -(expect_x+Lc)};
+
+  BLA::Matrix<2,3> Inter2 = H * P_prime;
+
+  BLA::Matrix<2,2> Inter3 = Inter2 * ~H + R;
+
+  BLA::Matrix<2,2> Inter3_I = Inter3.Inverse();
+
+  BLA::Matrix<3,2> Inter4 = ~H * Inter3_I;
+
+  BLA::Matrix<3,2> K = P_prime * Inter4;
+
+//-------------Correct Position---------
+  BLA::Matrix<3> x_cor;
+  Multiply(K,(z - z_hat_prime),x_cor);
+  x_hat = x_hat_prime + x_cor;
+
+
+//------------Calc new P---
+
+  BLA::Matrix<3,3> I = {1,0,0,
+                        0,1,0,
+                        0,0,1};
+
+  BLA::Matrix<3,3> Inter5 = I - (K * H);
+  Multiply(Inter5,P_prime,P);
+  //-----------------------------------------------------------------------------------------------------------------------
   
+  setServoAngle(servoAngleDeg); // This is to set the angle
 }
 
 
