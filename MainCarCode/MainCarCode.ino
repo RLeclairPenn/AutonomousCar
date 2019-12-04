@@ -3,7 +3,7 @@
 #include <Adafruit_LSM9DS1.h>
 #include <Adafruit_Sensor.h>
 #include <BasicLinearAlgebra.h>
-
+#include <Wire.h>
 #define servoPin 7 // pin for servo signal
 
 #define frontPingTrigPin 22 // ping sensor trigger pin (output from Arduino)
@@ -56,9 +56,20 @@ double Ki = 0.1;
 double Kd = 0.5;
 static double DerivError;
 
+// The below is to do arduino communication
+const int RECEIVE_REGISTER_SIZE = 8;
+const int SEND_REGISTER_SIZE = 8;
+float receive_registers[RECEIVE_REGISTER_SIZE];
+float send_registers[SEND_REGISTER_SIZE];
+int current_send_register = 3;
+int DO_KALMAN_UPDATE_COMMAND = 100;
+int STRING_COMMAND = 10;
+int UPDATE_SEND_REGISTER = 11;
+int hasReceivedPING = 0;
+
 void setup() {
   // Enable Serial Communications
-  Serial.begin(115200);
+  Serial.begin(9600);
 
   // Initialize Front Ping Sensor
   pinMode(frontPingGrndPin, OUTPUT); digitalWrite(frontPingGrndPin, LOW);
@@ -94,7 +105,86 @@ void setup() {
   lsm.setupAccel(lsm.LSM9DS1_ACCELRANGE_2G);
   lsm.setupMag(lsm.LSM9DS1_MAGGAIN_4GAUSS);
   lsm.setupGyro(lsm.LSM9DS1_GYROSCALE_245DPS);
+
+  // join i2c bus with address #8
+  Wire.begin(0x8);     
+
+  // tell the slave device what it should do when the master sends it data
+  // receiveEvent needs to be a method with a void return type and a single parameter
+  // of type int that indicates how many bytes are being written (this includes the command byte)        
+  Wire.onReceive(receiveEvent); 
+
+  // tell the slave device what it should do when the master asks for data. Since the master won't send
+  // a command saying what data it wants, you will need to get creative in order to send the master
+  // different kinds of data
+  Wire.onRequest(sendData);
 }
+
+// function that executes whenever data is received from master
+// this function is registered as an event, see setup()
+void receiveEvent(int howMany) {
+  String full_datastring = "";
+  
+  while (Wire.available()) { // loops through all the bytes that are sent over the wire
+    // read in the information on the wire one byte at a time.
+    // c can be set to any one byte primitive type such as char, int, byte. This type will cause c to be treated differently
+    char c = Wire.read(); 
+    full_datastring = full_datastring + c;
+  }
+  // extract the command byte based on the command byte have different behavior
+  byte command = full_datastring.charAt(0);
+
+  // read in a string and interpret data as string
+  if(command == STRING_COMMAND)
+  {
+    Serial.println("received data string");
+    String data = full_datastring.substring(1);
+    Serial.println(data);
+  }
+
+  // called before the Pi reads from a register in send register. Updates which register the
+  // Pi will read from.
+  if(command == UPDATE_SEND_REGISTER){
+    int data = full_datastring.substring(1).toInt();
+    current_send_register = data;
+    Serial.println("updating send register");
+    Serial.println(current_send_register);
+  }
+
+  // Pi can trigger commands by sending a command byte mapped to a command
+  if(command == DO_KALMAN_UPDATE_COMMAND)
+  {
+    hasReceivedPING = 1;
+  }
+  else {
+    hasReceivedPING = 0;
+  }
+
+  // If the command is inside the default write register range then write to the write register
+  if(command >= 0 && command <= RECEIVE_REGISTER_SIZE)
+  {
+    // received a float and therefore write to a register
+    Serial.println("Received Data Float. Writing to register " + String(command));
+    float data = full_datastring.substring(1).toFloat();
+    Serial.println(data);
+    receive_registers[command] = data;
+  }
+   
+  // Take care not to continue calling Wire.read() if there is nothing on the wire as you will get nonsense typically
+}
+
+// function that exectures whenever the master requests it. This function cannot have any parameters, and so
+// you will need to take care in order to have the function write different types of information to the master
+// one suggestion is to send a command from the master to the slave telling it what data you want and then having the Arduino write it
+void sendData() {
+  // send the data to the master
+  char data[8];
+  dtostrf(send_registers[current_send_register],8, 4, data);
+  Serial.println(data);
+  Wire.write(data);
+ 
+}
+
 
 void loop() {
   static float currX = 0.0; // input this into the matrix
@@ -154,7 +244,7 @@ void loop() {
   dt = (millis() - previousTime) / 1000.0;
   previousTime = millis();
 
-
+  
 
   //--------dead reckoning-----
   BLA::Matrix<3> x_hat_prime;
@@ -167,68 +257,75 @@ void loop() {
   x_hat(2) = correctAngle;
   // end of dead reckoning
 
-  
-  //SHOULD ONLY BE DONE WHEN THERE ARE MEASUREMENTS --------------------------------------------------------------------------------------------------
-  //TODO: Link the register things to these two measurements
-  double meas_x_t = 0.0; // camera coordinates
-  double meas_y_t = 0.0;
-  BLA::Matrix<2> z= {meas_x_t, meas_y_t}; // input our measurements
-
-  if (meas_x_t < 10.0) {
-    moveMotor(0, true);
-    while(1);
+  if (hasReceivedPING) {
+    float received = receive_registers[7];
+    Serial.print("What we received");
+    Serial.println(received);
   }
-  //--------------calc expected Pos of cone------
-
-  double expect_x = (xp - x_hat_prime(0)) * cos(x_hat_prime(2)) + (yp - x_hat_prime(1)) * sin(x_hat_prime(2)) - Lc; // camera coordinates 
-  double expect_y = (yp - x_hat_prime(1)) * cos(x_hat_prime(2)) - (xp - x_hat_prime(0)) * sin(x_hat_prime(2));
-
-  BLA::Matrix<2> z_hat_prime = {expect_x, expect_y};
-
   
-//-----------Calc P_prime-----
-
-  BLA::Matrix<3,3> A = {1, 0, -V * dt * sin(x_hat_prime(2)),
-                          0, 1, V * dt * cos(x_hat_prime(2)),
-                          0, 0, 1};
-
-  BLA::Matrix<3,3> P_prime;
-
-  BLA::Matrix<3,3> Inter = A * P;
-
-  Multiply(Inter,~A,P_prime);
-
-  P_prime += Q;
-
-//--------Calc K-----
-  BLA::Matrix<2,3> H = {-cos(x_hat_prime(2)), -sin(x_hat_prime(2)), expect_y,
-                         sin(x_hat_prime(2)), -cos(x_hat_prime(2)), -(expect_x+Lc)};
-
-  BLA::Matrix<2,3> Inter2 = H * P_prime;
-
-  BLA::Matrix<2,2> Inter3 = Inter2 * ~H + R;
-
-  BLA::Matrix<2,2> Inter3_I = Inter3.Inverse();
-
-  BLA::Matrix<3,2> Inter4 = ~H * Inter3_I;
-
-  BLA::Matrix<3,2> K = P_prime * Inter4;
-
-//-------------Correct Position---------
-  BLA::Matrix<3> x_cor;
-  Multiply(K,(z - z_hat_prime),x_cor);
-  x_hat = x_hat_prime + x_cor;
-
-
-//------------Calc new P---
-
-  BLA::Matrix<3,3> I = {1,0,0,
-                        0,1,0,
-                        0,0,1};
-
-  BLA::Matrix<3,3> Inter5 = I - (K * H);
-  Multiply(Inter5,P_prime,P);
-  //-----------------------------------------------------------------------------------------------------------------------
+  if (0) {
+    //SHOULD ONLY BE DONE WHEN THERE ARE MEASUREMENTS --------------------------------------------------------------------------------------------------
+    //TODO: Link the register things to these two measurements
+    double meas_x_t = 0.0; // camera coordinates
+    double meas_y_t = 0.0;
+    BLA::Matrix<2> z= {meas_x_t, meas_y_t}; // input our measurements
+  
+    if (meas_x_t < 10.0) {
+      moveMotor(0, true);
+      while(1);
+    }
+    //--------------calc expected Pos of cone------
+  
+    double expect_x = (xp - x_hat_prime(0)) * cos(x_hat_prime(2)) + (yp - x_hat_prime(1)) * sin(x_hat_prime(2)) - Lc; // camera coordinates 
+    double expect_y = (yp - x_hat_prime(1)) * cos(x_hat_prime(2)) - (xp - x_hat_prime(0)) * sin(x_hat_prime(2));
+  
+    BLA::Matrix<2> z_hat_prime = {expect_x, expect_y};
+  
+    
+  //-----------Calc P_prime-----
+  
+    BLA::Matrix<3,3> A = {1, 0, -V * dt * sin(x_hat_prime(2)),
+                            0, 1, V * dt * cos(x_hat_prime(2)),
+                            0, 0, 1};
+  
+    BLA::Matrix<3,3> P_prime;
+  
+    BLA::Matrix<3,3> Inter = A * P;
+  
+    Multiply(Inter,~A,P_prime);
+  
+    P_prime += Q;
+  
+  //--------Calc K-----
+    BLA::Matrix<2,3> H = {-cos(x_hat_prime(2)), -sin(x_hat_prime(2)), expect_y,
+                           sin(x_hat_prime(2)), -cos(x_hat_prime(2)), -(expect_x+Lc)};
+  
+    BLA::Matrix<2,3> Inter2 = H * P_prime;
+  
+    BLA::Matrix<2,2> Inter3 = Inter2 * ~H + R;
+  
+    BLA::Matrix<2,2> Inter3_I = Inter3.Inverse();
+  
+    BLA::Matrix<3,2> Inter4 = ~H * Inter3_I;
+  
+    BLA::Matrix<3,2> K = P_prime * Inter4;
+  
+  //-------------Correct Position---------
+    BLA::Matrix<3> x_cor;
+    Multiply(K,(z - z_hat_prime),x_cor);
+    x_hat = x_hat_prime + x_cor;
+  
+  
+  //------------Calc new P---
+  
+    BLA::Matrix<3,3> I = {1,0,0,
+                          0,1,0,
+                          0,0,1};
+  
+    BLA::Matrix<3,3> Inter5 = I - (K * H);
+    Multiply(Inter5,P_prime,P);
+    //-----------------------------------------------------------------------------------------------------------------------
+  }
   
   setServoAngle(servoAngleDeg); // This is to set the angle
 }
