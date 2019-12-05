@@ -68,9 +68,10 @@ int UPDATE_SEND_REGISTER = 11;
 int hasReceivedPING = 0;
 
 void setup() {
+  
   // Enable Serial Communications
   Serial.begin(9600);
-
+  
   // Initialize Front Ping Sensor
   pinMode(frontPingGrndPin, OUTPUT); digitalWrite(frontPingGrndPin, LOW);
   pinMode(frontPingTrigPin, OUTPUT);
@@ -93,7 +94,7 @@ void setup() {
 
   // Initialize Servo
   steeringServo.attach(servoPin);
-  setServoAngle(servoAngleDeg);
+  setServoAngle(0);
 
   //Initialize IMU 
   if (!lsm.begin())
@@ -169,7 +170,7 @@ void receiveEvent(int howMany) {
     Serial.println(data);
     receive_registers[command] = data;
   }
-   
+  
   // Take care not to continue calling Wire.read() if there is nothing on the wire as you will get nonsense typically
 }
 
@@ -190,7 +191,11 @@ void loop() {
   static float currX = 0.0; // input this into the matrix
   static float currY = 0.0; // input this into the matrix
   static double heading = 0.0; // input this into the matrix
-  
+  static float initDelay = true;
+  if (initDelay) {
+    initDelay = false;
+    delay(5000);
+  }
   // Setting up for previousTime
   static double previousTime = millis();
   double delayTsec = 0.01;
@@ -198,9 +203,9 @@ void loop() {
 
   // Necessary Stuff for the Kalman Filter
   double Lc = 16; //length of car
-  double V = 50.0; //speed of car (calibrated)
-  double xp = 1000; //pos of cone in world coordinate system
-  double yp = 100; //pos of cone in world coordinate system
+  double V = 35.0; //speed of car (calibrated)
+  double xp = 220; //pos of cone in world coordinate system
+  double yp = 16; //pos of cone in world coordinate system
     
   //Getting the gyro data
   lsm.read();  /* ask it to read in the data */
@@ -212,7 +217,7 @@ void loop() {
     motor_speed = 0;
   }
   else {
-    motor_speed = 0; // 50 is the usual speed
+    motor_speed = 50; // 50 is the usual speed
   }
   
   //Move Forward
@@ -233,11 +238,11 @@ void loop() {
                                0,0,0,
                                0,0,0}; // we know exactly where we start
   double TT = delayTsec*delayTsec;
-  double QQ = 100.0; // increasing means less certain of DR
+  double QQ = 1000.0; // increasing means less certain of DR
   BLA::Matrix<3,3> Q = {QQ*TT,0,0,  //uncertainty of Dead Reckoning
                         0,QQ*TT,0,
                         0,0,0.00001*QQ*TT};
-  double RR = 1000.0; // increasing this means less certainty of Measure.
+  double RR = 500.0; // increasing this means less certainty of Measure.
   BLA::Matrix<2,2> R = {RR*TT, 0, // uncertainty of camera measurements
                           0,  RR*TT};
                           
@@ -251,29 +256,33 @@ void loop() {
   x_hat_prime(0) = x_hat(0) + V * dt * cos(x_hat(2));
   x_hat_prime(1) = x_hat(1) + V * dt * sin(x_hat(2));
   x_hat_prime(2) = x_hat(2);
-
-  x_hat(0) = x_hat_prime(0);
-  x_hat(1) = x_hat_prime(1);
-  x_hat(2) = correctAngle;
-  // end of dead reckoning
-
-  if (hasReceivedPING) {
-    float received = receive_registers[7];
-    Serial.print("What we received");
-    Serial.println(received);
+  if (!hasReceivedPING) {
+    x_hat(0) = x_hat_prime(0);
+    x_hat(1) = x_hat_prime(1);
+    x_hat(2) = correctAngle;
+    // end of dead reckoning
   }
-  
-  if (0) {
-    //SHOULD ONLY BE DONE WHEN THERE ARE MEASUREMENTS --------------------------------------------------------------------------------------------------
-    //TODO: Link the register things to these two measurements
-    double meas_x_t = 0.0; // camera coordinates
-    double meas_y_t = 0.0;
-    BLA::Matrix<2> z= {meas_x_t, meas_y_t}; // input our measurements
-  
-    if (meas_x_t < 10.0) {
+  // if (hasReceivedPING) {
+  //  float receivedx = receive_registers[6];
+  //  float receivedy = receive_registers[7];
+  //  Serial.print("Cxp: ");
+  //  Serial.println(receivedx);
+  //  Serial.print("Cyp: ");
+  //  Serial.println(receivedy);
+  //}
+
+  if (x_hat(0) > 115) {
       moveMotor(0, true);
       while(1);
-    }
+  }
+  if (hasReceivedPING) {
+    //SHOULD ONLY BE DONE WHEN THERE ARE MEASUREMENTS --------------------------------------------------------------------------------------------------
+    //TODO: Link the register things to these two measurements
+    double meas_x_t = receive_registers[6]; // camera coordinates
+    double meas_y_t = receive_registers[7];
+    BLA::Matrix<2> z= {meas_x_t, meas_y_t}; // input our measurements
+  
+    
     //--------------calc expected Pos of cone------
   
     double expect_x = (xp - x_hat_prime(0)) * cos(x_hat_prime(2)) + (yp - x_hat_prime(1)) * sin(x_hat_prime(2)) - Lc; // camera coordinates 
@@ -326,8 +335,7 @@ void loop() {
     Multiply(Inter5,P_prime,P);
     //-----------------------------------------------------------------------------------------------------------------------
   }
-  
-  setServoAngle(servoAngleDeg); // This is to set the angle
+  setServoAngle(0); // This is to set the angle
 }
 
 
@@ -340,7 +348,7 @@ void setServoAngle(double sDeg)
   //  100us is about 20deg (higher values --> more right steering)
   //  wrong ServoCenter values can damage servo
   //
-  double ServoCenter_us = 1250;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     00.0;
+  double ServoCenter_us = 1150;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     00.0;
   double ServoScale_us = 8.0;    // micro-seconds per degree
   //
   //  NEVER send a servo command without constraining servo motion!
